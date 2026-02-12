@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact Form</title>
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google ReCaptcha v3 (Replace YOUR_SITE_KEY_HERE with your actual public key) -->
+    <script src="https://www.google.com/recaptcha/api.js?render=6LfjC2YsAAAAALDkVltUuzku-8k9Rzt_XrJWJS_G"></script>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+        <h2 class="text-2xl font-bold text-slate-800 mb-6">Contact Us</h2>
+        
+        <!-- Status Messages -->
+        <div id="status-message" class="hidden mb-4 p-4 rounded-lg text-sm"></div>
+
+        <form id="contact-form" class="space-y-4">
+            <!-- Name -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                <input type="text" id="name" required 
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </div>
+
+            <!-- Email -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                <input type="email" id="email" required 
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </div>
+
+            <!-- Phone (New field required by worker) -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                <input type="tel" id="phone" 
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </div>
+
+            <!-- Subject (New field required by worker) -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Subject</label>
+                <input type="text" id="subject" required 
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            </div>
+
+            <!-- Message Body (Worker expects 'messageBody') -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Message</label>
+                <textarea id="messageBody" rows="4" required 
+                    class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
+            </div>
+
+            <button type="submit" id="submit-btn" 
+                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                Send Message
+            </button>
+            
+            <p class="text-xs text-slate-400 mt-2 text-center">
+                Protected by reCAPTCHA
+            </p>
+        </form>
+    </div>
+
+    <script>
+        // CONFIGURATION
+        const WORKER_URL = "https://cloudflare-worker.kwiley.workers.dev/"; // Change to your Cloudflare Worker URL (e.g., https://your-worker.workers.dev)
+        const RECAPTCHA_SITE_KEY = "6LfjC2YsAAAAALDkVltUuzku-8k9Rzt_XrJWJS_G"; // Public Key
+        const API_KEY = "a%OlmMH^RbQg3@G^jmioMPL17geBUiOBMvO!bg"; // Must match env.API_KEY in your Worker
+
+        const form = document.getElementById('contact-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const statusDiv = document.getElementById('status-message');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // 1. UI Loading State
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Verifying...';
+            statusDiv.className = 'hidden mb-4 p-4 rounded-lg text-sm'; // Reset status
+
+            try {
+                // 2. Execute reCAPTCHA to get token
+                const token = await new Promise((resolve) => {
+                    grecaptcha.ready(() => {
+                        grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'submit' }).then(resolve);
+                    });
+                });
+
+                submitBtn.textContent = 'Sending...';
+
+                // 3. Prepare Payload (Matching worker.js expectations)
+                const payload = {
+                    name: document.getElementById('name').value,
+                    email: document.getElementById('email').value,
+                    phone: document.getElementById('phone').value,
+                    subject: document.getElementById('subject').value,
+                    messageBody: document.getElementById('messageBody').value, 
+                    token: token
+                };
+
+                // 4. Send Request
+                const response = await fetch(WORKER_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-API-Key": API_KEY // Header required by worker logic
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showStatus('success', 'Message sent successfully!');
+                    form.reset();
+                } else {
+                    // Handle Worker Errors (Rate limit, Auth, Validation)
+                    const errorMsg = result.message || result.error || 'Failed to send message.';
+                    showStatus('error', errorMsg);
+                }
+
+            } catch (error) {
+                console.error('Submission error:', error);
+                showStatus('error', 'Network error. Please try again later.');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send Message';
+            }
+        });
+
+        function showStatus(type, message) {
+            statusDiv.textContent = message;
+            statusDiv.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-emerald-100', 'text-emerald-700');
+            
+            if (type === 'success') {
+                statusDiv.classList.add('flex', 'bg-emerald-100', 'text-emerald-700');
+            } else {
+                statusDiv.classList.add('flex', 'bg-red-100', 'text-red-700');
+            }
+        }
+    </script>
+</body>
+</html>
